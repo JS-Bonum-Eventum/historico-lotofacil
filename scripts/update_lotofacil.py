@@ -1,21 +1,20 @@
 """
 update_lotofacil.py
-Baixa o arquivo Excel da Lotofácil do site da Caixa e converte para historico.txt
-Formato de saída: uma linha por sorteio, 15 números separados por espaço, ordem crescente
+Lotofácil: 15 números, range 1-25
+Colunas no Excel: Concurso(0), Data(1), Bola1(2)...Bola15(16)
 """
 
 import requests
 import openpyxl
-import os
 from io import BytesIO
 
-# URL direta do Excel da Caixa (Lotofácil)
-EXCEL_URL = "https://loteriascaixa-api.herokuapp.com/api/lotofacil"
-EXCEL_URL_CAIXA = "https://servicebus2.caixa.gov.br/portaldeloterias/api/resultados/download?modalidade=Lotof%C3%A1cil"
-
+EXCEL_URL = "https://servicebus2.caixa.gov.br/portaldeloterias/api/resultados/download?modalidade=Lotof%C3%A1cil"
 OUTPUT_FILE = "historico.txt"
 SEQUENCE_LENGTH = 15
 MAX_NUMBER = 25
+# Bola1=col C (índice 2) até Bola15=col Q (índice 16)
+BALL_COL_START = 2
+BALL_COL_END = 17  # exclusive
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36",
@@ -24,45 +23,43 @@ HEADERS = {
 }
 
 def download_excel():
-    """Tenta baixar o Excel da Caixa."""
-    print(f"Baixando Excel da Lotofácil...")
-    resp = requests.get(EXCEL_URL_CAIXA, headers=HEADERS, timeout=30)
+    print("Baixando Excel da Lotofácil...")
+    resp = requests.get(EXCEL_URL, headers=HEADERS, timeout=60)
     resp.raise_for_status()
     print(f"Download OK: {len(resp.content)} bytes")
     return BytesIO(resp.content)
 
 def parse_excel(file_bytes):
-    """Extrai sequências do Excel da Caixa."""
     wb = openpyxl.load_workbook(file_bytes, read_only=True, data_only=True)
     ws = wb.active
-    sequences = []
 
-    for row in ws.iter_rows(min_row=2, values_only=True):  # pula cabeçalho
+    # Log do cabeçalho para diagnóstico
+    header = [cell.value for cell in next(ws.iter_rows(min_row=1, max_row=1))]
+    print(f"Cabeçalho (cols 0-19): {header[:20]}")
+
+    sequences = []
+    for row in ws.iter_rows(min_row=2, values_only=True):
         if not row or row[0] is None:
             continue
-        # Colunas de bolas variam por modalidade — Lotofácil: cols 2-16 (índice 1-15)
         try:
             nums = []
-            for i in range(1, 16):  # 15 números
-                val = row[i]
-                if val is not None:
-                    n = int(val)
+            for i in range(BALL_COL_START, BALL_COL_END):
+                if i < len(row) and row[i] is not None:
+                    n = int(row[i])
                     if 1 <= n <= MAX_NUMBER:
                         nums.append(n)
             if len(nums) == SEQUENCE_LENGTH:
                 sorted_nums = sorted(set(nums))
                 if len(sorted_nums) == SEQUENCE_LENGTH:
                     sequences.append(sorted_nums)
-        except (ValueError, TypeError, IndexError):
+        except (ValueError, TypeError):
             continue
 
     wb.close()
-    print(f"Sequências válidas extraídas: {len(sequences)}")
+    print(f"Sequências válidas: {len(sequences)}")
     return sequences
 
 def write_output(sequences):
-    """Escreve o historico.txt."""
-    # Remove duplicatas mantendo ordem
     seen = set()
     unique = []
     for s in sequences:
@@ -70,20 +67,18 @@ def write_output(sequences):
         if key not in seen:
             seen.add(key)
             unique.append(s)
-
     with open(OUTPUT_FILE, 'w', encoding='utf-8') as f:
         for seq in unique:
             f.write(' '.join(map(str, seq)) + '\n')
-
-    print(f"historico.txt gerado: {len(unique)} linhas")
+    print(f"historico.txt: {len(unique)} linhas")
 
 def main():
     file_bytes = download_excel()
     sequences = parse_excel(file_bytes)
     if not sequences:
-        raise ValueError("Nenhuma sequência válida encontrada no Excel!")
+        raise ValueError("Nenhuma sequência válida encontrada!")
     write_output(sequences)
-    print("✅ Lotofácil atualizado com sucesso!")
+    print("✅ Lotofácil atualizado!")
 
 if __name__ == "__main__":
     main()
