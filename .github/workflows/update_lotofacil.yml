@@ -1,0 +1,50 @@
+# .github/workflows/update.yml
+# Roda todo dia às 21h (horário de Brasília = 00h UTC)
+# Baixa o Excel da Caixa e atualiza o historico.txt automaticamente
+
+name: Atualizar Histórico Lotofácil
+
+on:
+  schedule:
+    - cron: '0 0 * * *'   # Todo dia à meia-noite UTC (21h Brasília)
+  workflow_dispatch:        # Permite rodar manualmente pelo GitHub
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repositório
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Instalar dependências
+        run: |
+          pip install requests openpyxl
+
+      - name: Executar script de atualização
+        run: python scripts/update_lotofacil.py
+
+      - name: Verificar se houve mudanças
+        id: check_changes
+        run: |
+          git diff --quiet historico.txt || echo "changed=true" >> $GITHUB_OUTPUT
+
+      - name: Commit e push se houver mudanças
+        if: steps.check_changes.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add historico.txt
+          git commit -m "🎯 Atualizar histórico Lotofácil - $(date +'%Y-%m-%d')"
+          git push
+
+      - name: Sem mudanças
+        if: steps.check_changes.outputs.changed != 'true'
+        run: echo "Nenhuma mudança no histórico hoje."
