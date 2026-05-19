@@ -11,8 +11,8 @@ EXCEL_URL = "https://servicebus2.caixa.gov.br/portaldeloterias/api/resultados/do
 OUTPUT_FILE = "historico.txt"
 SEQUENCE_LENGTH = 15
 MAX_NUMBER = 25
-BALL_COL_START = 2   # coluna C
-BALL_COL_END = 17    # coluna Q inclusive (índice 16), exclusive 17
+BALL_COL_START = 2
+BALL_COL_END = 17
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36",
@@ -24,7 +24,9 @@ def to_int(val):
     if val is None or val == '':
         return None
     try:
-        return int(float(str(val).strip().replace(',', '.')))
+        # Remove espaços, substitui vírgula por ponto
+        s = str(val).strip().replace(',', '.').split('.')[0]
+        return int(s)
     except (ValueError, TypeError):
         return None
 
@@ -34,14 +36,13 @@ def download_excel():
     resp.raise_for_status()
     content = resp.content
     print(f"Download OK: {len(content)} bytes")
-    # Detecta formato pelo magic bytes
     if content[:2] == b'PK':
         fmt = 'xlsx'
     elif content[:8] == b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1':
         fmt = 'xls'
     else:
-        fmt = 'xlsx'  # tenta xlsx por padrão
-    print(f"Formato detectado: {fmt}")
+        fmt = 'xlsx'
+    print(f"Formato: {fmt}")
     return BytesIO(content), fmt
 
 def parse_xlsx(file_bytes):
@@ -49,9 +50,7 @@ def parse_xlsx(file_bytes):
     wb = openpyxl.load_workbook(file_bytes, data_only=True)
     ws = wb.active
     print(f"openpyxl: {ws.max_row} linhas x {ws.max_column} colunas")
-    rows = []
-    for row in ws.iter_rows(min_row=1, values_only=True):
-        rows.append(list(row))
+    rows = [list(row) for row in ws.iter_rows(min_row=1, values_only=True)]
     wb.close()
     return rows
 
@@ -60,34 +59,59 @@ def parse_xls(file_bytes):
     wb = xlrd.open_workbook(file_contents=file_bytes.read())
     ws = wb.sheet_by_index(0)
     print(f"xlrd: {ws.nrows} linhas x {ws.ncols} colunas")
-    rows = []
-    for i in range(ws.nrows):
-        rows.append(ws.row_values(i))
-    return rows
+    return [ws.row_values(i) for i in range(ws.nrows)]
 
 def extract_sequences(rows):
-    print(f"Total linhas: {len(rows)}")
-    # Log primeiras 3 linhas
-    for i, row in enumerate(rows[:3]):
-        print(f"  Linha {i+1}: {row[:20]}")
+    print(f"Total linhas no arquivo: {len(rows)}")
 
+    skipped_empty = 0
+    skipped_invalid = 0
+    skipped_range = 0
     sequences = []
-    # Pula linha 0 (cabeçalho), processa a partir da linha 1
-    for row in rows[1:]:
+
+    for idx, row in enumerate(rows[1:], start=2):  # pula cabeçalho
+        # Pula linha vazia
         if not row or row[0] is None or str(row[0]).strip() == '':
+            skipped_empty += 1
             continue
+
         nums = []
+        raw_vals = []
         for i in range(BALL_COL_START, BALL_COL_END):
-            if i < len(row):
-                n = to_int(row[i])
-                if n is not None and 1 <= n <= MAX_NUMBER:
-                    nums.append(n)
-        if len(nums) == SEQUENCE_LENGTH:
-            sorted_nums = sorted(set(nums))
-            if len(sorted_nums) == SEQUENCE_LENGTH:
-                sequences.append(sorted_nums)
+            val = row[i] if i < len(row) else None
+            raw_vals.append(val)
+            n = to_int(val)
+            if n is not None:
+                nums.append(n)
+
+        # Verifica quantidade
+        if len(nums) != SEQUENCE_LENGTH:
+            skipped_invalid += 1
+            if skipped_invalid <= 5:
+                print(f"  Linha {idx} inválida ({len(nums)} nums): raw={raw_vals}")
+            continue
+
+        # Verifica range — aceita mesmo fora do range e loga
+        out_of_range = [n for n in nums if n < 1 or n > MAX_NUMBER]
+        if out_of_range:
+            skipped_range += 1
+            if skipped_range <= 5:
+                print(f"  Linha {idx} fora do range: {out_of_range} | nums={nums}")
+            continue
+
+        sorted_nums = sorted(set(nums))
+        # Se set() removeu duplicatas, ainda tenta usar se tiver 15 únicos
+        if len(sorted_nums) == SEQUENCE_LENGTH:
+            sequences.append(sorted_nums)
+        else:
+            skipped_invalid += 1
+            if skipped_invalid <= 5:
+                print(f"  Linha {idx} com duplicatas: {nums}")
 
     print(f"Sequências válidas: {len(sequences)}")
+    print(f"Puladas (vazias): {skipped_empty}")
+    print(f"Puladas (inválidas): {skipped_invalid}")
+    print(f"Puladas (fora do range): {skipped_range}")
     return sequences
 
 def write_output(sequences):
@@ -105,11 +129,7 @@ def write_output(sequences):
 
 def main():
     file_bytes, fmt = download_excel()
-    if fmt == 'xls':
-        rows = parse_xls(file_bytes)
-    else:
-        rows = parse_xlsx(file_bytes)
-
+    rows = parse_xls(file_bytes) if fmt == 'xls' else parse_xlsx(file_bytes)
     sequences = extract_sequences(rows)
     if not sequences:
         raise ValueError("Nenhuma sequência válida encontrada!")
