@@ -1,7 +1,3 @@
-# .github/workflows/update.yml
-# Roda todo dia às 21h (horário de Brasília = 00h UTC)
-# Baixa o Excel da Caixa e atualiza o historico.txt automaticamente
-
 name: Atualizar Histórico Lotofácil
 
 on:
