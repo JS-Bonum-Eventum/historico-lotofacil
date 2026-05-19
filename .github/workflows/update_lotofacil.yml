@@ -6,8 +6,8 @@ name: Atualizar Histórico Lotofácil
 
 on:
   schedule:
-    - cron: '0 0 * * *'   # Todo dia à meia-noite UTC (21h Brasília)
-  workflow_dispatch:        # Permite rodar manualmente pelo GitHub
+    - cron: '0 0 * * *'
+  workflow_dispatch:
 
 jobs:
   update:
@@ -25,16 +25,14 @@ jobs:
           python-version: '3.11'
 
       - name: Instalar dependências
-        run: |
-          pip install requests openpyxl
+        run: pip install requests openpyxl xlrd
 
       - name: Executar script de atualização
         run: python scripts/update_lotofacil.py
 
       - name: Verificar se houve mudanças
         id: check_changes
-        run: |
-          git diff --quiet historico.txt || echo "changed=true" >> $GITHUB_OUTPUT
+        run: git diff --quiet historico.txt || echo "changed=true" >> $GITHUB_OUTPUT
 
       - name: Commit e push se houver mudanças
         if: steps.check_changes.outputs.changed == 'true'
