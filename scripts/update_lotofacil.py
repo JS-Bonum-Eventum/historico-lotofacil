@@ -1,7 +1,6 @@
 """
 update_lotofacil.py
 Lotofácil: 15 números (Bola1-Bola15), range 1-25
-Cabeçalho confirmado: Concurso(0), Data Sorteio(1), Bola1(2)...Bola15(16)
 """
 
 import requests
@@ -12,8 +11,6 @@ EXCEL_URL = "https://servicebus2.caixa.gov.br/portaldeloterias/api/resultados/do
 OUTPUT_FILE = "historico.txt"
 SEQUENCE_LENGTH = 15
 MAX_NUMBER = 25
-BALL_COL_START = 2
-BALL_COL_END = 17  # índices 2 a 16 inclusive
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36",
@@ -22,7 +19,6 @@ HEADERS = {
 }
 
 def to_int(val):
-    """Converte valor para inteiro — aceita int, float e string."""
     if val is None:
         return None
     try:
@@ -41,37 +37,60 @@ def parse_excel(file_bytes):
     wb = openpyxl.load_workbook(file_bytes, read_only=True, data_only=True)
     ws = wb.active
 
-    header = [cell.value for cell in next(ws.iter_rows(min_row=1, max_row=1))]
-    print(f"Cabeçalho: {header[:20]}")
+    print(f"Dimensões: max_row={ws.max_row}, max_col={ws.max_column}")
 
-    # Log primeiras 2 linhas de dados para diagnóstico
-    row_count = 0
+    # Lê TODAS as linhas como lista para inspeção
+    all_rows = list(ws.iter_rows(values_only=True))
+    print(f"Total de linhas no arquivo: {len(all_rows)}")
+
+    # Log das primeiras 5 linhas para diagnóstico
+    for i, row in enumerate(all_rows[:5]):
+        print(f"  Linha {i+1}: {row[:20]}")
+
+    # Encontra a linha do cabeçalho (que contém "Bola1")
+    header_row_idx = None
+    for i, row in enumerate(all_rows):
+        if row and any(str(c).strip() == 'Bola1' for c in row if c is not None):
+            header_row_idx = i
+            print(f"Cabeçalho encontrado na linha {i+1}: {row[:20]}")
+            break
+
+    if header_row_idx is None:
+        raise ValueError("Cabeçalho com 'Bola1' não encontrado!")
+
+    # Descobre índices das colunas Bola1...Bola15
+    header = all_rows[header_row_idx]
+    ball_cols = []
+    for i, val in enumerate(header):
+        if val is not None:
+            s = str(val).strip()
+            if s.startswith('Bola') and s[4:].isdigit():
+                ball_cols.append((int(s[4:]), i))
+
+    ball_cols.sort()  # ordena por número da bola
+    ball_cols = [i for _, i in ball_cols[:SEQUENCE_LENGTH]]
+    print(f"Colunas das bolas (índices): {ball_cols}")
+
+    if len(ball_cols) < SEQUENCE_LENGTH:
+        raise ValueError(f"Esperava {SEQUENCE_LENGTH} colunas de bolas, encontrou {len(ball_cols)}")
+
+    # Processa linhas de dados (após o cabeçalho)
     sequences = []
-
-    for row in ws.iter_rows(min_row=2, values_only=True):
+    for row in all_rows[header_row_idx + 1:]:
         if not row or row[0] is None:
             continue
-
-        # Log das primeiras linhas para diagnóstico
-        if row_count < 2:
-            print(f"Linha {row_count+2} raw: {row[:20]}")
-        row_count += 1
-
         nums = []
-        for i in range(BALL_COL_START, BALL_COL_END):
-            if i < len(row):
-                n = to_int(row[i])
-                if n is not None and 1 <= n <= MAX_NUMBER:
-                    nums.append(n)
-
+        for i in ball_cols:
+            n = to_int(row[i]) if i < len(row) else None
+            if n is not None and 1 <= n <= MAX_NUMBER:
+                nums.append(n)
         if len(nums) == SEQUENCE_LENGTH:
             sorted_nums = sorted(set(nums))
             if len(sorted_nums) == SEQUENCE_LENGTH:
                 sequences.append(sorted_nums)
 
-    wb.close()
-    print(f"Total linhas lidas: {row_count}")
     print(f"Sequências válidas: {len(sequences)}")
+    wb.close()
     return sequences
 
 def write_output(sequences):
