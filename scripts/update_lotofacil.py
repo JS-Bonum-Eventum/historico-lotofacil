@@ -1,39 +1,43 @@
 """
 update_lotofacil.py
-Lotofácil: 15 números (Bola1-Bola15), range 1-25
+Lotofácil: 15 números, range 1-25
+Baixa via Cloudflare Worker que faz proxy da Caixa
 """
 
 import requests
 import pandas as pd
+import os
 from io import BytesIO
 
-EXCEL_URL = "https://servicebus2.caixa.gov.br/portaldeloterias/api/resultados/download?modalidade=Lotof%C3%A1cil"
+# URL do seu Cloudflare Worker — substitua pelo seu subdomínio
+WORKER_URL = "https://numerix-proxy.SEU-USUARIO.workers.dev/lotofacil"
+
+# Token configurado no Worker (Settings → Variables → SECRET_TOKEN)
+SECRET_TOKEN = os.environ.get("CAIXA_SECRET_TOKEN", "")
+
 OUTPUT_FILE = "historico.txt"
 SEQUENCE_LENGTH = 15
 MAX_NUMBER = 25
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36",
-    "Accept": "*/*",
-    "Referer": "https://loterias.caixa.gov.br/Paginas/Lotofacil.aspx",
-}
-
 def download_excel():
-    print("Baixando Excel da Lotofácil...")
-    resp = requests.get(EXCEL_URL, headers=HEADERS, timeout=60)
-    resp.raise_for_status()
-    print(f"Download OK: {len(resp.content)} bytes")
-    return BytesIO(resp.content)
+    print("Baixando Excel da Lotofácil via Worker...")
+    r = requests.get(
+        WORKER_URL,
+        headers={"X-Auth-Token": SECRET_TOKEN},
+        timeout=60,
+    )
+    r.raise_for_status()
+    print(f"Download OK: {len(r.content)} bytes")
+    return BytesIO(r.content)
 
 def parse_excel(file_bytes):
-    # pandas lê todas as linhas corretamente incluindo shared strings
     df = pd.read_excel(file_bytes, engine='openpyxl', header=0)
     print(f"DataFrame: {len(df)} linhas x {len(df.columns)} colunas")
-    print(f"Colunas: {list(df.columns[:20])}")
 
-    # Identifica colunas Bola1...Bola15
-    ball_cols = [c for c in df.columns if str(c).startswith('Bola') and str(c)[4:].isdigit()]
-    ball_cols = sorted(ball_cols, key=lambda c: int(str(c)[4:]))[:SEQUENCE_LENGTH]
+    ball_cols = sorted(
+        [c for c in df.columns if str(c).startswith('Bola') and str(c)[4:].isdigit()],
+        key=lambda c: int(str(c)[4:])
+    )[:SEQUENCE_LENGTH]
     print(f"Colunas bolas: {ball_cols}")
 
     if len(ball_cols) < SEQUENCE_LENGTH:
@@ -41,7 +45,7 @@ def parse_excel(file_bytes):
 
     sequences = []
     skipped = 0
-    for idx, row in df.iterrows():
+    for _, row in df.iterrows():
         try:
             nums = []
             for col in ball_cols:
@@ -59,9 +63,7 @@ def parse_excel(file_bytes):
                     skipped += 1
             else:
                 skipped += 1
-                if skipped <= 3:
-                    print(f"  Linha {idx+2} ignorada: {len(nums)} nums válidos de {[row[c] for c in ball_cols]}")
-        except Exception as e:
+        except Exception:
             skipped += 1
 
     print(f"Sequências válidas: {len(sequences)}")
