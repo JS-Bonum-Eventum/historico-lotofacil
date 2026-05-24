@@ -2,7 +2,8 @@ name: Atualizar Histórico Lotofácil
 
 on:
   schedule:
-    - cron: '0 0 * * *'
+    - cron: '0 0
+15 0 * * *'
   workflow_dispatch:
 
 jobs:
@@ -20,9 +21,11 @@ jobs:
           python-version: '3.11'
 
       - name: Instalar dependências
-        run: pip install requests openpyxl pandas xlrd
+        run: pip install requests openpyxl pandas
 
       - name: Executar script de atualização
+        env:
+          CAIXA_SECRET_TOKEN: ${{ secrets.CAIXA_SECRET_TOKEN }}
         run: python scripts/update_lotofacil.py
 
       - name: Verificar se houve mudanças
@@ -40,4 +43,4 @@ jobs:
 
       - name: Sem mudanças
         if: steps.check_changes.outputs.changed != 'true'
-        run: echo "Nenhuma mudança no histórico hoje."
+        run: echo "Nenhuma mudança detectada."
