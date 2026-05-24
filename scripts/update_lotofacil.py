@@ -10,7 +10,7 @@ import os
 from io import BytesIO
 
 # URL do seu Cloudflare Worker — substitua pelo seu subdomínio
-WORKER_URL = "https://numerix-proxy.SEU-USUARIO.workers.dev/lotofacil"
+WORKER_URL = "https://numerix-proxy.jsbonum-eventum.workers.dev/lotofacil"
 
 # Token configurado no Worker (Settings → Variables → SECRET_TOKEN)
 SECRET_TOKEN = os.environ.get("CAIXA_SECRET_TOKEN", "")
